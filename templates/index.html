@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Invoice to UPNQR</title>
+  </head>
+  <body>
+    <h1>Invoice to UPNQR</h1>
+    <form
+      id="form"
+      method="post"
+      action="/upload"
+      enctype="multipart/form-data"
+      data-botpoison-public-key="pk_e9c7cc1c-ef20-4c9b-8186-a9c405be5255"
+    >
+      <input type="file" name="file" accept=".pdf" />
+      <button id="button" type="submit">Upload</button>
+    </form>
+
+    <script src="https://unpkg.com/htmx.org@1.9.5"></script>
+
+    <script src="https://unpkg.com/@botpoison/browser"></script>
+
+    <script>
+      var formElement = document.getElementById("form");
+      var buttonElement = document.getElementById("button");
+      formElement.addEventListener("botpoison-challenge-start", function () {
+        console.debug("Challenge started");
+        buttonElement.setAttribute("disabled", "disabled");
+      });
+      formElement.addEventListener("botpoison-challenge-success", function () {
+        console.debug("Challenge succeeded");
+        buttonElement.removeAttribute("disabled");
+      });
+      formElement.addEventListener("botpoison-challenge-error", function () {
+        buttonElement.removeAttribute("disabled");
+      });
+    </script>
+  </body>
+</html>
