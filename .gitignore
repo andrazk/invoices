@@ -1,3 +1,5 @@
-.vercel
-.env
-.vscode
+/__pycache__
+/.env
+/.vercel
+/.vscode
+/venv

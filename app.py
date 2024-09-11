@@ -1,15 +1,34 @@
 from flask import Flask, request, render_template
 import pdfplumber
-import openai
+from openai import OpenAI
 import json
 import base64
 import qrcode
 from io import BytesIO
 import os
-import requests
+import httpx
+from pydantic import BaseModel
+from datetime import date
 
+client = OpenAI()
 
 app = Flask(__name__)
+
+
+class InvoiceExtraction(BaseModel):
+    invoice_number: str
+    invoice_date: str
+    due_date: str
+    total_amount: str
+    total_amount_currency: str
+    bank_account: str
+    bank_name: str
+    issuer_name: str
+    issuer_address: str
+    issuer_zip_code: str
+    issuer_city: str
+    service_name: str
+    reference_number: str
 
 
 def botpoison(solution):
@@ -18,7 +37,7 @@ def botpoison(solution):
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
 
     try:
-        response = requests.post(
+        response = httpx.post(
             "https://api.botpoison.com/verify", json=data, headers=headers
         )
         response_data = response.json()
@@ -28,7 +47,7 @@ def botpoison(solution):
         else:
             return False
 
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         print(f"Botpoison Request failed: {e}")
 
     return False
@@ -79,6 +98,7 @@ def generatePrompt(text):
 
     General guidelines:
 
+    - Use the date format YYYY-MM-DD for all dates.
     - Try to shorten service name to 50 characters or less, but try to keep it as descriptive as possible.
     - Don't return example values, but the actual values from the invoice. If not sure about the value, leave it empty.
     - Reference number should start with SIXX, or RFXX (XX is a number between 00 and 99) followed by space. 
@@ -124,16 +144,23 @@ def upload():
 
         prompt = generatePrompt(text)
 
-        completion = openai.Completion.create(
-            model="gpt-3.5-turbo-instruct",
-            prompt=prompt,
-            max_tokens=512,
-            temperature=0.2,
+        # Use the Pydantic model `InvoiceExtraction` to parse the response
+        completion = client.beta.chat.completions.parse(
+            model="gpt-4o-2024-08-06",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert at structured data extraction. You will be given unstructured text from an invoice and should convert it into the given structure.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            response_format=InvoiceExtraction,
         )
 
-        data = json.loads(completion.choices[0].text)
+        # Parse the structured response using Pydantic
+        invoice_data = completion.choices[0].message.parsed
 
-        # Create a list of lines
+        # Create a list of lines for UPN QR code generation
         lines = [
             "UPNQR",
             "",
@@ -143,17 +170,17 @@ def upload():
             "",
             "",
             "",
-            f"{int(float(data['total_amount'].replace(',', '.')) * 100):011d}",
+            f"{int(float(invoice_data.total_amount.replace(',', '.')) * 100):011d}",
             "",
             "",
             "GDSV",
-            data["service_name"],
-            convertDateToDDMMLLLL(data["due_date"]),
-            data["bank_account"].replace(" ", ""),
-            data["reference_number"],
-            data["issuer_name"],
-            data["issuer_address"],
-            f"{data['issuer_zip_code']} {data['issuer_city']}",
+            invoice_data.service_name,
+            convertDateToDDMMLLLL(invoice_data.due_date),
+            invoice_data.bank_account.replace(" ", ""),
+            invoice_data.reference_number,
+            invoice_data.issuer_name,
+            invoice_data.issuer_address,
+            f"{invoice_data.issuer_zip_code} {invoice_data.issuer_city}",
         ]
 
         # Calculate character count
@@ -185,7 +212,7 @@ def upload():
         <pre>
         {text}
         ------
-        {completion.choices[0].text}
+        {completion.choices[0].message.content}
         </pre>
 
         <img src="data:image/png;base64,{qr_image_base64}" alt="UPN QR Code" width="600">
